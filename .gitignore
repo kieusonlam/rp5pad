@@ -1,0 +1,12 @@
+build/
+__pycache__/
+*.pyc
+*.apk
+*.idsig
+debug.keystore
+pad_app.json
+make_shortcut.ps1
+screenshot*.png
+build_preview.png
+dist/
+.venv/

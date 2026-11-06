@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.nx2a.rp5pad" android:versionCode="2" android:versionName="0.1.0">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:label="RP5 Pad" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
+        <activity android:name=".PadActivity" android:exported="true" android:screenOrientation="sensorLandscape" android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|uiMode" android:windowSoftInputMode="stateHidden|adjustPan">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
