@@ -8,7 +8,7 @@ import zipfile
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 HERE = os.path.dirname(os.path.abspath(__file__))
-SDK, JDK = os.environ.get("ANDROID_HOME", r"D:devndroid-sdk"), os.environ.get("JAVA_HOME", r"D:devjdk-21")
+SDK, JDK = os.environ.get("ANDROID_HOME", r"D:\dev\android-sdk"), os.environ.get("JAVA_HOME", r"D:\dev\jdk-21")
 BT = os.path.join(SDK, "build-tools", "36.1.0")
 JAR = os.path.join(SDK, "platforms", "android-36", "android.jar")
 OUT = os.path.join(HERE, "build")
