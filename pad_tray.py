@@ -17,7 +17,8 @@ sys.path.insert(0, HERE)
 import pad_server  # noqa: E402
 import pad_tester  # noqa: E402
 
-CONFIG = os.path.join(HERE, "pad_app.json")
+FROZEN = getattr(sys, "frozen", False)   # the installed exe: its own folder may be read-only, and USB needs adb, so WiFi (which needs pairing) starts on
+CONFIG = os.path.join(os.path.dirname(pad_server.state_path()), "pad_app.json") if FROZEN else os.path.join(HERE, "pad_app.json")
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_NAME = "RP5 Pad"
 CLASS = "RP5PadTray"
@@ -73,6 +74,8 @@ def load_cfg():
 
 
 def start_command():
+    if FROZEN:
+        return f'"{sys.executable}" --startup'
     exe = sys.executable.replace("python.exe", "pythonw.exe")
     return f'"{exe}" "{os.path.abspath(__file__)}" --startup'
 
@@ -105,7 +108,7 @@ def ask_pair(name, ip, code):
 
 class Tray:
     def __init__(self, quiet):
-        self.lan = bool(load_cfg().get("lan"))
+        self.lan = bool(load_cfg().get("lan", FROZEN))
         self.q = queue.Queue()
         self.tester = pad_tester.Tester()
         self.status = "Starting…"
@@ -146,7 +149,7 @@ class Tray:
         try:
             pad_server.run(pad_server.Pad(), self.lan, pad_server.PORT)
         except OSError:
-            self.on_report("!Port 7878 is busy: is pad_server.py running?")
+            self.on_report("!Port 7878 is busy: is another copy of RP5 Pad running?")
         except Exception as e:
             self.on_report(f"!Cannot use the virtual pad driver: {e}")
 
@@ -191,6 +194,7 @@ class Tray:
         elif cmd == ID_WIFI:   # the listening socket changes: start again
             cfg = load_cfg()
             cfg["lan"] = not self.lan
+            os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
             with open(CONFIG, "w", encoding="utf-8") as f:
                 json.dump(cfg, f)
             self.restart = True
@@ -240,7 +244,7 @@ def main():
     t.loop()
     if t.restart:
         k32.CloseHandle(mutex)
-        subprocess.Popen([sys.executable, os.path.abspath(__file__), "--startup"])
+        subprocess.Popen([sys.executable, "--startup"] if FROZEN else [sys.executable, os.path.abspath(__file__), "--startup"])
     os._exit(0)   # the server's threads are blocked in accept; the virtual pad goes with the process
 
 
