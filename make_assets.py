@@ -35,8 +35,8 @@ def polys(d):
             pos = (n[0], n[1])
             cur.append(pos)
         elif cmd == "C":
-            for i in range(1, 25):
-                t = i / 24
+            for i in range(1, 129):   # enough short segments that the tester's big body has no visible corners
+                t = i / 128
                 u = 1 - t
                 pos2 = tuple(u ** 3 * p + 3 * u * u * t * a + 3 * u * t * t * b + t ** 3 * q for p, a, b, q in zip(pos, n[0:2], n[2:4], n[4:6]))
                 cur.append(pos2)
@@ -130,17 +130,18 @@ ico(os.path.join(HERE, "assets", "app.ico"), app_icon, [16, 24, 32, 48, 64, 128,
 # ---------- the tester's pictures: the Android PadView's shapes and sizes, in units of 6 logical pixels ----------
 LIT, FACE, BODYC, MARK = "#22D3EE", "#2A3440", "#182029", "#10161C"
 CARD = "#141A22"
-SS = 4
+SS = 8
 
 
 def rrect(w, h, r, layers):
     """A picture w x h pixels; layers: (x0, x1, y0, y1, radius, colour), drawn in order, smooth edges."""
-    im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    im = Image.new("RGBA", (w, h), rgb(layers[0][5]) + (0,))
     for x0, x1, y0, y1, rad, col in layers:
         m = Image.new("L", (w * SS, h * SS), 0)
         ImageDraw.Draw(m).rounded_rectangle((x0 * SS, y0 * SS, x1 * SS - 1, y1 * SS - 1), radius=rad * SS, fill=255)
         c = Image.new("RGBA", (w, h), rgb(col) + (255,))
-        im.paste(c, (0, 0), m.resize((w, h), Image.LANCZOS))
+        c.putalpha(m.resize((w, h), Image.BOX))
+        im = Image.alpha_composite(im, c)   # not paste: that also fades the edge's colour towards the empty background, and Tk then fades it a second time
     return im
 
 
@@ -166,11 +167,11 @@ def tester_set(S):
         save(f"trigL_{k}", rrect(w, h, 0, [(0, w, 0, h, h / 2, FACE)] + ([(0, fill, 0, h, h / 2, LIT)] if k else [])))
         save(f"trigR_{k}", rrect(w, h, 0, [(0, w, 0, h, h / 2, FACE)] + ([(w - fill, w, 0, h, h / 2, LIT)] if k else [])))
     size = 100 * U
-    m = Image.new("L", (size * SS // 2, size * SS // 2), 0)
-    f = size * SS / 2 / 100
+    m = Image.new("L", (size * 4, size * 4), 0)
+    f = size * 4 / 100
     ImageDraw.Draw(m).polygon([(x * f, y * f) for x, y in polys(BODY)[0]], fill=255)
     body = Image.new("RGBA", (size, size), rgb(BODYC) + (255,))
-    body.putalpha(m.resize((size, size), Image.LANCZOS))
+    body.putalpha(m.resize((size, size), Image.BOX))
     save("body", body)
     save("logo", app_icon(40 * S))
     for name, h in (("card_status", 110), ("card_stats", 176)):

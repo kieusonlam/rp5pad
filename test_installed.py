@@ -59,6 +59,10 @@ def run_value():
 
 
 saved_run = run_value()
+was_installed = pwsh("Get-CimInstance Win32_Process -Filter \"name='RP5Pad.exe'\" | Select-Object -First 1 -ExpandProperty ExecutablePath")   # a real install running on this machine: back on afterwards
+was_source = pwsh("Get-CimInstance Win32_Process -Filter \"name='pythonw.exe'\" | Where-Object CommandLine -match 'pad_tray\\.py' | Measure-Object | ForEach-Object Count") != "0"
+print("running before: installed" if was_installed else "running before: source" if was_source else "running before: nothing")
+pwsh("Stop-Process -Name RP5Pad -Force -Confirm:$false -ErrorAction SilentlyContinue")
 pwsh("Get-CimInstance Win32_Process -Filter \"name='pythonw.exe'\" | Where-Object CommandLine -match 'pad_tray\\.py' | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -Confirm:$false -ErrorAction Stop } catch {} }")
 print("source tray stopped:", wait(lambda: not u.FindWindowW("RP5PadTray", None), 5))
 proc = None
@@ -122,7 +126,10 @@ finally:
         print("restored the Run value")
     print("Run value same as before:", run_value() == saved_run)
     shutil.rmtree(root, ignore_errors=True)
-    pwsh("explorer.exe (Join-Path ([Environment]::GetFolderPath('Desktop')) 'RP5 Pad.lnk')")
-    print("source tray back:", wait(lambda: u.FindWindowW("RP5PadTray", None), 10))
+    if was_installed:
+        subprocess.Popen(["explorer.exe", was_installed])
+    elif was_source:
+        pwsh("explorer.exe (Join-Path ([Environment]::GetFolderPath('Desktop')) 'RP5 Pad.lnk')")
+    print("app back:", wait(lambda: u.FindWindowW("RP5PadTray", None), 10))
     new_log = os.path.getsize(log) if os.path.exists(log) else 0
     print("tester errors:", "none" if new_log == log_before else open(log, encoding="utf-8").read()[log_before:][-800:])
