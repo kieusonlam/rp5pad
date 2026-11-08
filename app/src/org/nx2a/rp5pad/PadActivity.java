@@ -64,6 +64,8 @@ public class PadActivity extends Activity {
     PadView padView;
     EditText ipField;
     TextView[] seg = new TextView[3];
+    LinearLayout updateCard;
+    TextView updateText, updateButton;
 
     int dp(float v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
@@ -185,6 +187,19 @@ public class PadActivity extends Activity {
         });
         left.addView(ipField, wrap(8));
 
+        updateCard = card(LinearLayout.HORIZONTAL);
+        updateCard.setGravity(Gravity.CENTER_VERTICAL);
+        updateCard.setVisibility(View.GONE);
+        updateText = text("", 13, TEXT, false);
+        updateCard.addView(updateText, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        updateButton = text("", 13, BG, true);
+        updateButton.setBackground(round(ACCENT, 9));
+        updateButton.setPadding(dp(14), dp(7), dp(14), dp(7));
+        LinearLayout.LayoutParams ub = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        ub.leftMargin = dp(10);
+        updateCard.addView(updateButton, ub);
+        left.addView(updateCard, wrap(12));
+
         padView = new PadView(this, this);
         LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
         pl.leftMargin = dp(16);
@@ -194,6 +209,18 @@ public class PadActivity extends Activity {
         root.requestFocus();
         paintChoice();
         waiting();
+        new Updater(this).check();
+    }
+
+    /** The update card; no button while something is under way. From any thread. */
+    void showUpdate(String s, String button, Runnable tap) {
+        ui.post(() -> {
+            updateText.setText(s);
+            updateButton.setText(button == null ? "" : button);
+            updateButton.setVisibility(button == null ? View.GONE : View.VISIBLE);
+            updateButton.setOnClickListener(tap == null ? null : v -> tap.run());
+            updateCard.setVisibility(View.VISIBLE);
+        });
     }
 
     void choose(int m) {

@@ -45,6 +45,8 @@ Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\ViGEmBusSetup_x64.msi"" /qb /no
 Filename: "netsh.exe"; Parameters: "advfirewall firewall delete rule name=""RP5 Pad"""; Flags: runhidden; Check: IsAdminInstallMode
 Filename: "netsh.exe"; Parameters: "advfirewall firewall add rule name=""RP5 Pad"" dir=in action=allow program=""{app}\RP5Pad.exe"" enable=yes"; StatusMsg: "Allowing WiFi connections..."; Flags: runhidden; Check: IsAdminInstallMode
 Filename: "{app}\RP5Pad.exe"; Description: "Start RP5 Pad"; Flags: nowait postinstall skipifsilent runasoriginaluser
+; The app's own update passes /restart=1
+Filename: "{app}\RP5Pad.exe"; Parameters: "--startup"; Flags: nowait runasoriginaluser; Check: RestartAsked
 
 [UninstallRun]
 Filename: "taskkill.exe"; Parameters: "/f /im RP5Pad.exe"; Flags: runhidden; RunOnceId: "StopApp"
@@ -56,10 +58,21 @@ begin
   Result := IsAdminInstallMode and not RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\ViGEmBus');
 end;
 
+function RestartAsked: Boolean;
+begin
+  Result := ExpandConstant('{param:restart|0}') = '1';
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Code: Integer;
+  Tray: HWND;
 begin
-  Exec('taskkill.exe', '/f /im RP5Pad.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);   { upgrading over a running copy }
+  Tray := FindWindowByClassName('RP5PadTray');   { upgrading over a running copy: asked politely, its tray icon goes too }
+  if Tray <> 0 then begin
+    SendMessage(Tray, 16, 0, 0);   { WM_CLOSE }
+    Sleep(1000);
+  end;
+  Exec('taskkill.exe', '/f /im RP5Pad.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Result := '';
 end;

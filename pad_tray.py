@@ -9,6 +9,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 import winreg
 from ctypes import wintypes as w
 
@@ -16,6 +17,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import pad_server  # noqa: E402
 import pad_tester  # noqa: E402
+import pad_update  # noqa: E402
 
 FROZEN = getattr(sys, "frozen", False)   # the installed exe: its own folder may be read-only, and USB needs adb, so WiFi (which needs pairing) starts on
 CONFIG = os.path.join(os.path.dirname(pad_server.state_path()), "pad_app.json") if FROZEN else os.path.join(HERE, "pad_app.json")
@@ -28,7 +30,9 @@ NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
 NIF_MESSAGE, NIF_ICON, NIF_TIP, NIF_INFO = 1, 2, 4, 0x10
 MF_STRING, MF_GRAYED, MF_CHECKED, MF_SEPARATOR = 0, 1, 8, 0x800
 TPM_RETURNCMD, TPM_RIGHTBUTTON = 0x100, 0x2
-ID_WIFI, ID_START, ID_QUIT, ID_STATUS, ID_FORGET, ID_TEST = 2, 3, 4, 1, 5, 6
+ID_WIFI, ID_START, ID_QUIT, ID_STATUS, ID_FORGET, ID_TEST, ID_UPDATE, ID_CHECK = 2, 3, 4, 1, 5, 6, 7, 8
+NIN_BALLOONUSERCLICK = 0x405
+UPDATE_DELAY, UPDATE_EVERY = 10, 24 * 3600   # seconds
 LRESULT = ctypes.c_ssize_t
 WNDPROC = ctypes.WINFUNCTYPE(LRESULT, w.HWND, w.UINT, w.WPARAM, w.LPARAM)
 
@@ -63,6 +67,7 @@ k32.GetModuleHandleW.restype, k32.GetModuleHandleW.argtypes = w.HMODULE, [w.LPCW
 k32.CreateMutexW.restype, k32.CreateMutexW.argtypes = w.HANDLE, [w.LPVOID, w.BOOL, w.LPCWSTR]
 k32.CloseHandle.argtypes = [w.HANDLE]
 s32.Shell_NotifyIconW.argtypes = [w.DWORD, ctypes.POINTER(NOTIFYICONDATAW)]
+s32.ShellExecuteW.restype, s32.ShellExecuteW.argtypes = ctypes.c_ssize_t, [w.HWND, w.LPCWSTR, w.LPCWSTR, w.LPCWSTR, w.LPCWSTR, ctypes.c_int]
 
 
 def load_cfg():
@@ -127,6 +132,54 @@ class Tray:
         pad_server.report = self.on_report
         pad_server.ask_pair = ask_pair
         threading.Thread(target=self.serve, daemon=True).start()
+        if FROZEN:
+            threading.Thread(target=self.update_loop, daemon=True).start()
+
+    update, announced, installing, update_balloon = None, None, False, False
+
+    def update_loop(self):
+        time.sleep(UPDATE_DELAY)
+        pad_update.clean_old_downloads()
+        while True:
+            self.check_update(False)
+            time.sleep(UPDATE_EVERY)
+
+    def check_update(self, asked):
+        try:
+            self.update = pad_update.newer()
+        except Exception as e:   # no network, or the repository is not public: nothing to show unless asked
+            pad_update.log(f"check failed: {e}")
+            if asked:
+                self.on_report("#Could not check for updates. Try again later.")
+            return
+        if self.update and (asked or self.update.version != self.announced):
+            self.announced = self.update.version
+            self.on_report("^" + self.update.version)
+        elif asked and not self.update:
+            self.on_report(f"#You have the latest version ({pad_update.VERSION}).")
+
+    def install_update(self):
+        u = self.update
+        if not u or self.installing:
+            return
+        text = f"Install RP5 Pad {u.version} now?\n\nThe controller disconnects while it installs, and Windows asks for permission."
+        if u32.MessageBoxW(self.hwnd, text, "RP5 Pad update", 0x4 | 0x20 | 0x10000) != 6:   # YESNO, QUESTION, SETFOREGROUND; IDYES
+            return
+        self.installing = True
+        self.on_report("#Downloading the update…")
+        threading.Thread(target=self.fetch_and_run, args=(u,), daemon=True).start()
+
+    def fetch_and_run(self, u):
+        try:
+            path = pad_update.download(u)
+            # The installer closes this app once Windows has allowed it, so saying no leaves everything running
+            if s32.ShellExecuteW(None, "open", path, pad_update.setup_args(), None, 1) <= 32:
+                raise OSError("Windows did not start the installer")
+        except Exception as e:
+            pad_update.log(f"install failed: {e}")
+            self.on_report("#The update failed. Try again later.")
+        finally:
+            self.installing = False
 
     def data(self, flags):
         d = NOTIFYICONDATAW(cbSize=ctypes.sizeof(NOTIFYICONDATAW), hWnd=self.hwnd, uID=1, uFlags=flags, uCallbackMessage=WM_TRAY, hIcon=self.icons[self.icon])
@@ -156,7 +209,13 @@ class Tray:
     def drain(self):
         while not self.q.empty():
             m = self.q.get()
-            if m.startswith("!"):
+            if m.startswith("^"):
+                self.update_balloon = True
+                self.balloon(f"RP5 Pad {m[1:]} is available", "Click here to install it, or use the menu of the tray icon.")
+            elif m.startswith("#"):
+                self.update_balloon = False
+                self.balloon("RP5 Pad", m[1:])
+            elif m.startswith("!"):
                 self.status, self.icon = m[1:], "err"
                 self.balloon("RP5 Pad", m[1:])
             elif m.startswith("waiting") or m.startswith("disconnected") or m.startswith("connection lost"):
@@ -176,6 +235,11 @@ class Tray:
         u32.AppendMenuW(m, MF_STRING | (0 if n else MF_GRAYED), ID_FORGET, f"Forget paired devices ({n})")
         u32.AppendMenuW(m, MF_STRING | (MF_CHECKED if startup_on() else 0), ID_START, "Start with Windows")
         u32.AppendMenuW(m, MF_SEPARATOR, 0, None)
+        if self.update:
+            u32.AppendMenuW(m, MF_STRING, ID_UPDATE, f"Install update {self.update.version}")
+        if FROZEN:
+            u32.AppendMenuW(m, MF_STRING, ID_CHECK, f"Check for updates (now {pad_update.VERSION})")
+            u32.AppendMenuW(m, MF_SEPARATOR, 0, None)
         u32.AppendMenuW(m, MF_STRING, ID_QUIT, "Quit")
         p = w.POINT()
         u32.GetCursorPos(ctypes.byref(p))
@@ -189,6 +253,10 @@ class Tray:
     def command(self, cmd):
         if cmd == ID_TEST:
             self.tester.open()
+        elif cmd == ID_UPDATE:
+            self.install_update()
+        elif cmd == ID_CHECK:
+            threading.Thread(target=self.check_update, args=(True,), daemon=True).start()
         elif cmd == ID_START:
             startup_set(not startup_on())
         elif cmd == ID_WIFI:   # the listening socket changes: start again
@@ -212,6 +280,9 @@ class Tray:
             self.menu()
         elif msg == WM_TRAY and lp == WM_LBUTTONUP:
             self.tester.open()
+        elif msg == WM_TRAY and lp == NIN_BALLOONUSERCLICK:
+            if self.update_balloon:
+                self.install_update()
         elif msg == WM_STATUS:
             self.drain()
         elif msg == WM_COMMAND:

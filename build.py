@@ -1,6 +1,7 @@
 """build.py: builds app/ into rp5pad.apk with the SDK's tools directly (no Gradle)."""
 import glob
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -21,11 +22,17 @@ def run(*a):
 
 shutil.rmtree(OUT, ignore_errors=True)
 os.makedirs(os.path.join(OUT, "cls"))
-app = os.path.join(HERE, "app")
+app = os.environ.get("RP5PAD_APP_DIR") or os.path.join(HERE, "app")
 flat = os.path.join(OUT, "res.zip")
 run(os.path.join(BT, "aapt2.exe"), "compile", "--dir", os.path.join(app, "res"), "-o", flat)
 raw = os.path.join(OUT, "raw.apk")
-run(os.path.join(BT, "aapt2.exe"), "link", "-I", JAR, "--manifest", os.path.join(app, "AndroidManifest.xml"), "--min-sdk-version", "26", "--target-sdk-version", "33", "-o", raw, flat)
+with open(os.path.join(HERE, "pad_version.py"), encoding="utf-8") as f:
+    apk_version = re.search(r'APK_VERSION = "(\d+)\.(\d+)\.(\d+)"', f.read())
+major, minor, patch = (int(x) for x in apk_version.groups())
+if os.environ.get("RP5PAD_APK_VERSION"):   # test builds only, see test_android_update.py
+    major, minor, patch = (int(x) for x in os.environ["RP5PAD_APK_VERSION"].split("."))
+run(os.path.join(BT, "aapt2.exe"), "link", "-I", JAR, "--manifest", os.path.join(app, "AndroidManifest.xml"), "--min-sdk-version", "26", "--target-sdk-version", "33",
+    "--version-name", f"{major}.{minor}.{patch}", "--version-code", str(major * 10000 + minor * 100 + patch), "--replace-version", "-o", raw, flat)
 src = glob.glob(os.path.join(app, "src", "**", "*.java"), recursive=True)
 run(os.path.join(JDK, "bin", "javac.exe"), "-encoding", "UTF-8", "--release", "11", "-classpath", JAR, "-d", os.path.join(OUT, "cls"), *src)
 cls = glob.glob(os.path.join(OUT, "cls", "**", "*.class"), recursive=True)
@@ -36,6 +43,6 @@ aligned = os.path.join(OUT, "aligned.apk")
 run(os.path.join(BT, "zipalign.exe"), "-f", "4", raw, aligned)
 if not os.path.exists(KS):
     run(os.path.join(JDK, "bin", "keytool.exe"), "-genkeypair", "-keystore", KS, "-storepass", "android", "-keypass", "android", "-alias", "rp5pad", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000", "-dname", "CN=rp5pad")
-apk = os.path.join(HERE, "rp5pad.apk")
+apk = os.environ.get("RP5PAD_APK_OUT") or os.path.join(HERE, "rp5pad.apk")
 run(os.path.join(BT, "apksigner.bat"), "sign", "--ks", KS, "--ks-pass", "pass:android", "--out", apk, aligned)
 print("built", apk, os.path.getsize(apk), "bytes")
