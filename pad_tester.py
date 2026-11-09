@@ -26,6 +26,26 @@ def read_xinput(slot):
     return None, None
 
 
+def work_area():
+    """(left, top, right, bottom) of the screen under the mouse, without the taskbar."""
+    class RECT(ctypes.Structure):
+        _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long), ("r", ctypes.c_long), ("b", ctypes.c_long)]
+
+    class INFO(ctypes.Structure):
+        _fields_ = [("size", ctypes.c_ulong), ("monitor", RECT), ("work", RECT), ("flags", ctypes.c_ulong)]
+
+    u = ctypes.windll.user32
+    pt = (ctypes.c_long * 2)()
+    u.GetCursorPos(pt)
+    u.MonitorFromPoint.restype = ctypes.c_void_p
+    mon = u.MonitorFromPoint(ctypes.c_longlong(pt[0] & 0xFFFFFFFF | pt[1] << 32), 2)   # POINT by value; 2: the nearest screen
+    info = INFO(size=ctypes.sizeof(INFO))
+    if not mon or not u.GetMonitorInfoW(ctypes.c_void_p(mon), ctypes.byref(info)):
+        return 0, 0, u.GetSystemMetrics(0), u.GetSystemMetrics(1)
+    w = info.work
+    return w.l, w.t, w.r, w.b
+
+
 class Tester:
     def __init__(self):
         self.thread = None
@@ -66,11 +86,21 @@ class Tester:
             ctypes.windll.dwmapi.DwmSetWindowAttribute(ctypes.windll.user32.GetParent(r.winfo_id()), 20, ctypes.byref(ctypes.c_int(1)), 4)
         except OSError:
             pass
+        self.center()
         r.deiconify()
         r.lift()
         r.focus_force()
         self.tick()
         r.mainloop()
+
+    def center(self):
+        """Puts the window, title bar included, in the middle of the screen under the mouse."""
+        r, m = self.r, ctypes.windll.user32.GetSystemMetrics
+        r.update_idletasks()
+        frame = m(33) + m(92)   # sizing frame + padded border, on each side
+        w, h = r.winfo_reqwidth() + 2 * frame, r.winfo_reqheight() + m(4) + 2 * frame   # 4: the title bar
+        left, top, right, bottom = work_area()
+        r.geometry(f"+{left + max(0, (right - left - w) // 2)}+{top + max(0, (bottom - top - h) // 2)}")
 
     def img(self, name):
         if name not in self.images:
@@ -152,6 +182,8 @@ class Tester:
     def tick(self):
         if self.front:
             self.front = False
+            if self.r.state() == "withdrawn":   # reopened: centred again; already open: left where it is
+                self.center()
             self.r.deiconify()
             self.r.lift()
             self.r.focus_force()
