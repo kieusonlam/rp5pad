@@ -10,3 +10,4 @@ screenshot*.png
 build_preview.png
 dist/
 .venv/
+.claude/settings.local.json
